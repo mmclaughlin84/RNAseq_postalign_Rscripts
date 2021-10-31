@@ -1,90 +1,59 @@
-######################################################
-# ____________ DESeq2 ___________#
-#####################################################
+###################################################
+# ----- DIFFERENTIAL EXPRESSION WITH DESeq2 ----- #
+###################################################
 
-# Manu Colour Scheme
-# Control = #808080
-# ATRi = #b855d8
-# RT = #08bf01
-# ATRi/RT = #5657f9
-
-# grey = #e9eef0
-# red = #ff4e27
-# cyan = #4DBBD5FF
-# green = #00A087FF
-# light orange = #fdb361
-
-rm(list = ls()) #clear environment
-
+setwd(dirname(rstudioapi::getSourceEditorContext()$path)) # sets working directory based on script location - should be in analysis folder
 getwd() # get working directory
-setwd("/Users/mclaughinm/Desktop/RNAseq_EPMOC2/analysis") # set working directory as *ANALYSIS* folder
-list.files()
 
-# All updated for Rv4.03
 library(tidyverse)
-library(ComplexHeatmap)
-library(RColorBrewer)
 library(DESeq2)
-library(dendextend)
 library(crayon)
-dev.off() # To reset heatmap render error
-# Future use: # batch correction with ComBat #normalisation with fRMA
 
-###########################################
-### STEP 1: DETAILS ON DATA PREP ###
-###########################################
+# Note: this is not set up to perform batch correction
 
-##### INPUTS (IN PROJECT ROOT DIRECTORY) ##### 
+#########################################
+# STEP 1: DETAILS ON INPUTS AND OUTPUTS #
+#########################################
 
-# countData = "counts_ENonly_gene.csv" output from prepDE
+##### INPUT FILES (IN PROJECT ROOT DIRECTORY) ##### 
+# countData = "counts_gene.csv" output from prepDE.py3
 # colData = sample_names.csv
-    # sample_names           = {experimnetid}_{model}_{timepoint}_{treatment}_{replicate} # ONLY _ do not use hyphens
+    # sample_names            = these are the new samples names provided during the alignment script 1 renaming
     # old_sample_name         = if a previous sample name used 
     # treatment_wo_timepoint  = vehicle/PD1/RT/RT_PD1/etc
     # timepoint               = 14d/21d, injected/contralateral, parental/KO, etc
     # treatment               = 14d_vehicle/14d_PD1/21d_vehicle/21d_PD1/etc
+# Note: colData$sample_names must be in exactly the same order as the column names containing samples names in countData (counts_gene.csv)
 
-##### INPUT CONTROL & TIMEPOINT VARIABLES ##### 
 
-control_name='Vehicle'
-timepoints=c('D3', 'D10') # 'timepoints' = 1) timepoint 2) biflank 3) KO/UV/OE/etc
-count_filter_number = 24 # filter rows that have less than 1 read per sample
+##### INPUT VARIABLES ##### 
+control_name='Vehicle' # This is case sensitive (Vehicle, vehicle, Control, control, etc)
+timepoints=c('D3', 'D10') # 'timepoints' = 1) timepoint 2) biflank 3) KO/UV/OE/etc 4) different models if single timepoint each
+count_filter_number = 24 # Set to filter rows that have less than 1 read per sample - ie, how many samples do you have?
 
-##### OUTPUT #####
+##### OUTPUTS #####
 # dds data object for each timepoint
 # DESeq_export/normalised_counts.csv
-# DESeq_export_timepoint1/ all DGE comparison
-# DESeq_export_timepoint2/ all DGE comparison
-##### END ##### 
+# DESeq_export/timepoint1/ all DGE comparison
+# DESeq_export/timepoint2/ all DGE comparison
+# DESeq_export/DESeq_output.RData save of environment
 
 
+########################
+# STEP 2: DATA IMPORT #
+########################
 
-
-###########################################
-### STEP 2: DATA IMPORT ###
-###########################################
-
-### 1) Import
-# DESeqDataSetFromMatrix() for ballgown>prepDE.py, different for HTSeq/Salmon/Sailfish/kallisto/RSEM
-# countData = tidied count data with gene_ids in column 1 used as row.names for matrix
-# sampleData = 1) sample_names as 1st column must matching first row in countData
-# sampleData = 1) treatment is groups to be used for DGE analysis
-# Column headers cannot start with a number, or contain - 
 colData <- read.csv("./../sample_names.csv", row.names="sample_names")
-countData <- read.csv("./../counts_ENonly_gene.csv")
+countData <- read.csv("./../counts_gene.csv")
 
-### 1b) Name Crosschecking - additional checks require conversion to matrix first
-colnames(countData) <- gsub("\\.", "_", colnames(countData)) # Convert . and - to _ it makes life easier # REMEMBER, MUST MATCH colData!!!!!!!!!
-rownames(colData) <- gsub("-", "_", rownames(colData)) # Make sample names in colData match countData
-
-### Convert colData columsn to factors
-str(colData)
+# DESeq2 requires colData columns to be factors
 colData$treatment <- factor(colData$treatment, levels = unique(colData$treatment))
 colData$timepoint <- factor(colData$timepoint, levels = unique(colData$timepoint))
 colData$treatment_wo_timepoint <- factor(colData$treatment_wo_timepoint, levels = unique(colData$treatment_wo_timepoint))
 
-# Remove ENSEMBL-ID| and duplicates, convert to matrix
-countData$gene_id <- gsub(".*\\|", "", countData$gene_id) # find and replace with grep-substitute
+# Stringtie/prepDE.py3 exports the gene_id in the format "ENSEMBL-ID|mgi_symbol"
+# This leaves only the mgi_symbol, checks for duplicates, sums duplicates, performs a check, then converts to a matrix
+countData$gene_id <- gsub("[A-Z0-9]*\\|", "", countData$gene_id) # find and replace with grep-substitute
 countData <- countData[order(countData$gene_id),] # order for duplicate check
 countData_qc_duplicates <- countData %>% group_by(gene_id) %>% filter(n() > 1) # qc export of duplicates found
 countData <- aggregate(. ~ gene_id, data=countData, FUN=sum) # sums column values when merging duplicates
@@ -94,82 +63,60 @@ countData <- countData %>% column_to_rownames(var = "gene_id") %>% as.matrix() #
 # Additional checks to determine sample names match between columns (countData) and rows (colData)
 print(all(rownames(colData) %in% colnames(countData))) # do all row names in sample data (colData) appear in column names for counts (countData)?
 print(all(rownames(colData) == colnames(countData))) # are they in the same order? # They need to be
-# countData <- countData[, rownames(colData)] # This will reorder the countData columns to match the sample order provided in the colData file
-# all(rownames(colData) == colnames(countData)) # It reorders sample names and numbers in the column, this has been triple checked, but do it every time to be certain
+# countData <- countData[, rownames(colData)] # If needed, reorders countData columns to match sample order in colData file - run two lines above again
 
 
-
-
-
-######################################################
-### STEP 3: DESEQ2 FOR LOOP BY TIMEPOINT/FLANK/ETC ###
-######################################################
+##################################################
+# STEP 3: DESEQ2 FOR LOOP BY TIMEPOINT/FLANK/ETC #
+##################################################
 
 for (timepoint in timepoints) {
   
-### 2) DEseq matrix and filtering
-# Create a DESeqDataSet from count matrix (countData) and sample labels (colData)
-# Removes rows with average of 1 read per sample ("more strict filtering to increase power is automatically applied via independent filtering on the mean of normalized counts within the results function.")
+# [1] Create a DESeqDataSet (dds) from count matrix (countData) and sample info (colData) using 
+# Note: DESeqDataSetFromMatrix() is specific for ballgown>prepDE.py3 output, needs changed if alignment switched to HTSeq/Salmon/other
+# Removes rows with average of 1 read per sample
+# Manual: "more strict filtering to increase power is automatically applied via independent filtering on the mean of normalized counts within the results function."
 dds <- DESeqDataSetFromMatrix(countData = countData, colData = colData, design = ~ treatment)
-cat(magenta(paste('Rows Pre-Filtering:',nrow(dds),'\n'))) # no. pre filtering
+cat(magenta(paste('Rows Pre-Filtering:',nrow(dds),'\n'))) # genes pre filtering
 keep <- rowSums(counts(dds)) >= count_filter_number # results in a TRUE/FALSE output # count_filter_number is at very start and = 1 read per sample
 dds <- dds[keep,] # only keeps rows = TRUE
-cat(magenta(paste('Rows Post-Filtering:', nrow(dds),'\n'))) # no. post filtering
+cat(magenta(paste('Rows Post-Filtering:', nrow(dds),'\n'))) # genes post filtering
 rm(keep)
 
-
-### 3) Set "Factor" Levels & DGE Analysis
-# sets reference level for DGE comparison, changes based on timepoint in for loop
-# way to add second variable, such as batch (for batch correction?)
-# Run DGE analysis with multiple cores
+# [2] Set "Factor" Levels & DGE Analysis
+# 'reference_level' sets reference level for DGE comparison, changes based on timepoint in for loop using paste to change the timepoint on each loop
+# Run DGE analysis using DESeq() set to use multiple cores
 reference_level=paste0(control_name, '_', timepoint)
 dds$treatment <- relevel(dds$treatment, ref = reference_level)
 dds <- DESeq(dds, parallel = TRUE)
 cat(magenta(paste('List of comparisons at:', timepoint, '\n')))
 
-
-
-### 4) Export
-# a) Normalised counts 
-# these two lines will duplicate on each loop, but no issues with overwrite as normalised counts always the same irrespective of timepoint and treatment setup factor/levels setup
-dir.create("DESeq_export/", showWarnings = FALSE) 
-write.csv(as.data.frame(counts(dds, normalized=T)), file="DESeq_export/normalised_counts.csv") # normalised not be impacted by timepoint setting
-#b) all DGE comparisons using for loop to export csv files
+# [3] Export
+dir.create("DESeq_export/", showWarnings = FALSE)
+# This code runs every loop, no issues with overwrite as normalised counts always the same irrespective of progression through loops
+write.csv(as.data.frame(counts(dds, normalized=T)), file="DESeq_export/normalised_counts.csv")
+# all DGE comparisons using for loop to export csv files
 directory=paste0('DESeq_export/', timepoint, '/')
 dir.create(directory, showWarnings = FALSE)
-DGE_comparisons=resultsNames(dds) # lookup results comparisons for export loop
+DGE_comparisons=resultsNames(dds) # lookup results comparisons list for export loop
 print(DGE_comparisons)
-for (i in DGE_comparisons) {
-  write.csv(as.data.frame(results(dds, name=i)), paste0(directory, i, ".csv"))
-}
+for (i in DGE_comparisons) {write.csv(as.data.frame(results(dds, name=i)), paste0(directory, i, ".csv"))}
 
-### 5) Rename dds by timepoint
+# [4] Rename dds by timepoint
 # this renames the dds file based on the timepoint so that it can be used to import results in subsequent analyses
-print('Note: Normalised counts are the same irrespective of dds timepoint used')
 dds_name=paste0('dds_', timepoint)
 assign(dds_name, dds)
 rm(dds)
-
 cat(green(paste0('DEseq2: ', timepoint, ' Loop Completed\n')))
 
-}
+} # end of timepoints for loop
 
 
-
-###############################################################
-### STEP 4: Removal of Unneeded Data and Saving .RDATA file ###
-###############################################################
+#####################################################
+# STEP 4: Remove Unneeded Data and Save .RDATA file #
+#####################################################
 
 rm(dds_name, DGE_comparisons, directory, i, reference_level, countData, countData_qc_duplicates, count_filter_number)
 save.image(file = "DESeq_export/DESeq_output.RData")
-#load(file = "DESeq_export/DESeq_output.RData")
 
-###############################
-# _______At This Point_______ #
-###############################
-### >>>>>> PCA script + All heatmap + DEG count <<<<< ###
-### >>>>> GSEA/TopGO/GO# scripts <<<<< ###
-### >>>>> Volcano Plot <<<<< ### not yet written, copy VR
-### >>>>> Heatmaps: GO term based <<<<< ####
-
-
+# End of Script

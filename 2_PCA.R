@@ -6,6 +6,9 @@ library(tidyverse)
 library(ComplexHeatmap)
 library(RColorBrewer)
 
+setwd(dirname(rstudioapi::getSourceEditorContext()$path)) # sets working directory based on script location - should be in analysis folder
+getwd() # get working directory
+
 # When you created sample names, they were called something like this
 # JKVR002_4434_A04_injected_control_4
 # This is long, so we want to clip the projectId, model name and sampleID off the start

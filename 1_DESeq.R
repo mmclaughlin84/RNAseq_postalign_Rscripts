@@ -3,7 +3,6 @@
 ###################################################
 
 setwd(dirname(rstudioapi::getSourceEditorContext()$path)) # sets working directory based on script location - should be in analysis folder
-setwd('/Volumes/DATA/DRI/URTHY/TARGTHER/mmclaughlin/RNAseq_4434_JKVR_JKVR002_RP1aPD1_complete/analysis')
 getwd() # get working directory
 
 library(tidyverse)

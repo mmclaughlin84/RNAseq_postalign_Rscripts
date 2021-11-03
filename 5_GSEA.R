@@ -1,17 +1,24 @@
+####################################################
+# __________ Gene Set Enrichment Analysis__________ #
+####################################################
 
-### RUN DESEQ2 up to export of files with adjpvalues ###
-### Script setup to import these files ###
+# NOTE: This is used for human only as the genesets validated for mouse are not as clear as for TopGo or pathfindR
+# As a result it is a rougher script due to less use
 
+# Set Working Directory
+setwd(dirname(rstudioapi::getSourceEditorContext()$path)) # sets working directory based on script location - should be in analysis folder
+getwd() # check
 
-#_________________GSEA___________________#
-### After DEseq (ensure generic input) ###
-
+# Load libraries
 library(fgsea)
 library(reshape2)  # needed?
 library(circlize) # needed?
 
+# Load saved DESeq2 script environment
+load(file = "DESeq_export/DESeq_output.RData") # Avoids rerunning DESeq2 - is >50Mb so if offsite on VPN can take a moment to load
+
 # File List
-# This is spectacularly hamfisted
+# This is hamfisted
 GSEA_file_path='DEseq_export_14d' # Populate folder and it should do the rest
 GSEA_file_list <- data.frame(file=c(list.files(path=paste0(GSEA_file_path, '/')))) 
 GSEA_file_list <- GSEA_file_list[grepl('_vs_', GSEA_file_list$file), ] 

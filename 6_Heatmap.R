@@ -2,14 +2,19 @@
 #_____HEATMAPS: log2 z-scaled values based on custom gene list_____#
 ####################################################################
 
+# Set Working Directory
+setwd(dirname(rstudioapi::getSourceEditorContext()$path)) # sets working directory based on script location - should be in analysis folder
+getwd() # check
+
+# Load libraries / create export directory
 library(tidyverse)
 library(ComplexHeatmap)
 library(RColorBrewer)
 library(circlize) #colorRamp2
 library(DESeq2)
 suppressWarnings(dir.create('Heatmaps'))
-setwd("/Users/mclaughinm/Desktop/RNAseq_MP106_RT_STINGa/analysis") # set working directory as *ANALYSIS* folder
-rm(list = ls()) #clear environment
+
+# Load saved DESeq2 script environment
 load(file = "DESeq_export/DESeq_output.RData") # Avoids rerunning DESeq2
 
 
@@ -17,13 +22,14 @@ load(file = "DESeq_export/DESeq_output.RData") # Avoids rerunning DESeq2
 # 0) Variables
 ######################################################################
 
-var_panel_name='general'
-var_what_timepoint="21d" # Select timepoint/biflank id(s) in nomenclature
-var_averages_or_not='all_values' #averages|all_values, used for if function and export file name
-var_regex_start='^everything_before_treatment_time' # Regular expression to leave only {treatment}_{timepoint}
-var_regex_end='_r[0-9]$|_rep[0-9]$' # trim old _r[0-9] naming system if needed
+var_panel_name='panel3'
+var_what_timepoint="contralateral" # Select timepoint/biflank id(s) in nomenclature
+var_whats_the_vehicle_called='control' # Control, control, Vehicle, vehicle, Isotype, isotype
+var_averages_or_not='averages' #averages|all_values, used for if function and export file name
+var_regex_start='^JKVR002_4434_[A-Z][0-9]{2}_' # Regular expression to leave only {timepoint}_{treatment}
+var_regex_end='_[0-9]$|_r[0-9]$|_rep[0-9]$' # trim replicate number off the end
 # [1st list] = order samples are actually in. [2nd list (levels)] = order they SHOULD be in
-var_simple_treatment_names=factor(c('Vehicle', 'BI880', 'RT', 'RT-BI880'), levels = c('Vehicle', 'BI880', 'RT', 'RT-BI880'))
+var_simple_treatment_names=factor(c('control', 'aPD1', 'RP1', 'RP1aPD1'), levels = c('control', 'aPD1', 'RP1', 'RP1aPD1'))
 
 
 ######################################################################
@@ -182,7 +188,7 @@ if (var_averages_or_not == 'averages') {
   
   # Adjusted P-value: reorder sample names by *factor levels* in var_simple_treatment_names (+print to track)
   print(colnames(c.FILT.pvalue))
-  c.FILT.pvalue <- c.FILT.pvalue[ ,setdiff(levels(var_simple_treatment_names), 'Vehicle')] # Need to exclude Vehicle from list of factors, but assumes this is ALWAYS called 'Vehicle'
+  c.FILT.pvalue <- c.FILT.pvalue[ ,setdiff(levels(var_simple_treatment_names), var_whats_the_vehicle_called)] # Need to exclude Vehicle from list of factors, so need to state as var
   print(colnames(c.FILT.pvalue))
   print('COLUMN RENAMING: Averages requested and columns renamed as listed in var_simple_treatment_names')
 } else {print('COLUMN RENAMING: Averages NOT requested, column names not altered')}
@@ -276,6 +282,6 @@ draw(c.heatmap + c.heatmap.right)
 # 8) Export
 ######################################################################
 
-pdf(paste0('Heatmaps/', var_averages_or_not, '_', var_panel_name, '_', var_what_timepoint, '.pdf'), width=4, height=7)
+pdf(paste0('Heatmaps/', var_averages_or_not, '_', var_panel_name, '_', var_what_timepoint, '.pdf'), width=(ncol(c.FILT.norm)*0.15+2), height=(nrow(c.FILT.norm)*0.1+2))
 draw(c.heatmap + c.heatmap.right)
 dev.off()

@@ -1,47 +1,45 @@
-######################################################################
+####################################################
 # __________ pathfindR  Pathway Analysis__________ #
-######################################################################
+####################################################
 
+# Based on
 # https://cran.r-project.org/web/packages/pathfindR/vignettes/intro_vignette.html
 # https://cran.r-project.org/web/packages/pathfindR/vignettes/visualization_vignette.html
 # https://cran.r-project.org/web/packages/pathfindR/vignettes/non_hs_analysis.html
 
-rm(list = ls()) #clear environment
-setwd("/Users/mclaughinm/Desktop/RNAseq_EPMOC2/analysis") # set working directory as *ANALYSIS* folder
+# Set working directory / create pathfindR folder
+setwd(dirname(rstudioapi::getSourceEditorContext()$path)) # sets working directory based on script location - should be in analysis folder
+getwd() # check
+suppressWarnings(dir.create('pathfindR'))
 
-
-dev.off()
-
-getwd() # get working directory
-list.files()
-dir.create('pathfindR')
-setwd("/Users/mclaughinm/Desktop/RNAseq_EPMOC2/analysis") # set working directory as *ANALYSIS* folder
-
+# Load required libraries
 library(pathfindR)
 library(tidyverse)
 library(org.Hs.eg.db)
 library(KEGGREST)
 library(KEGGgraph)
 library(biomaRt)
-
+library(crayon)
 
 ######################################################################
 # 1) CREATE FILE LIST OF DEGs
 ######################################################################
 
-# List timepoints
-# Create blank matrix with number of comparisons as nrows needed
-timepoints=c('D3', 'D10')
-pathfindr_file_list <- data.frame(matrix(NA, nrow = 3, ncol = 0))
+# Extracts timepoints and number of comparisons from previous data
+# Creates blank matrix with number of comparisons as nrows but no columns
+# Compiles location of DESeq2 outputs by timepoint in a dataframe with a column per timepoint
+sample_details <- read.csv('../sample_names.csv')
+timepoints <- unique(sample_details$timepoint)
+rm(sample_details)
+pathfindr_file_list <- data.frame(matrix(NA, ncol = 0, nrow = length(list.files(path = 'DESeq_export/injected', pattern = paste0(timepoints[1], '_vs_')))))
 
 for (timepoint in timepoints) {
-pathfindr_file_path=paste0('DESeq_export/', timepoint) # Indicate folder by timepoint
-temp_file <- data.frame(file = c(list.files(path=paste0(pathfindr_file_path, '/')))) # list files in folder
-temp_file <- temp_file[grepl(paste0(timepoint,'_vs_'), temp_file$file), , drop = FALSE] # restrict to timepoint
+file_path=paste0('DESeq_export/', timepoint) # Indicate folder by timepoint
+temp_file <- data.frame(file = list.files(path = paste0(file_path, '/'), pattern = paste0(timepoint,'_vs_'))) # list files in folder restricted to timepoint
 pathfindr_file_list$file <- temp_file$file # move column to created dataframe now that the length is correct
-colnames(pathfindr_file_list)[colnames(pathfindr_file_list) == 'file'] <- paste0(timepoint) # rename by timepoint
+colnames(pathfindr_file_list)[colnames(pathfindr_file_list) == 'file'] <- paste0(timepoint) # rename 'file' to timepoint
 print(pathfindr_file_list)
-rm(temp_file, timepoint, pathfindr_file_path)
+rm(temp_file, timepoint, file_path)
 }
 
 
@@ -52,7 +50,7 @@ rm(temp_file, timepoint, pathfindr_file_path)
 for (timepoint in timepoints) {
   
   # Extract list of files by timepoint to pass to nested second loop
-  print(file_list <- pathfindr_file_list[[timepoint]])
+  (file_list <- pathfindr_file_list[[timepoint]])
   
   for (file in file_list) {
     
@@ -60,15 +58,14 @@ for (timepoint in timepoints) {
     # Filter on padj and log fold change (remove NA needed) and extract only 
     # 3 Column in put required. MGI, log2FC, adjpvalue
     pathfindr_imported_DEGs <- read.csv(paste0('DESeq_export/', timepoint, '/', file)) %>% dplyr::rename(Gene.symbol = 1) # this will not work if read_csv instead of read.csv
-    pathfindr_imported_DEGs <- pathfindr_imported_DEGs[((pathfindr_imported_DEGs$log2FoldChange >= +2 | pathfindr_imported_DEGs$log2FoldChange <= -2) &pathfindr_imported_DEGs$padj <= 0.05 & pathfindr_imported_DEGs$padj > 0 & !is.na(pathfindr_imported_DEGs$padj)), c('Gene.symbol', 'log2FoldChange', 'padj')]
+    pathfindr_imported_DEGs <- pathfindr_imported_DEGs[((pathfindr_imported_DEGs$log2FoldChange >= +2 | pathfindr_imported_DEGs$log2FoldChange <= -2) & pathfindr_imported_DEGs$padj <= 0.05 & pathfindr_imported_DEGs$padj > 0 & !is.na(pathfindr_imported_DEGs$padj)), c('Gene.symbol', 'log2FoldChange', 'padj')]
     colnames(pathfindr_imported_DEGs) <- c('Gene.symbol', 'logFC', 'adj.P.Val')
     head(pathfindr_imported_DEGs[order(pathfindr_imported_DEGs$adj.P.Val),],10)
     
     ###### RUNNING PATHFINDR
     # Protein-Protein Interaction Networks (PIN)
-    # Default = Biogrid, but KEGG, GeneMania and IntAct also possible
+    # Default = Biogrid, but KEGG, GeneMania and IntAct also possible - Here using KEGG for mouse as built in already
     # 1) PIN (default - biogrid), 2) Algorithm (default - greedy), 3) Geneset (default - KEGG)
-    ?run_pathfindR
     pathfindr_output <- run_pathfindR(input = pathfindr_imported_DEGs,
                                       gene_sets = "mmu_KEGG", # Ms gene set = mmu_KEGG
                                       pin_name_path = "mmu_STRING", # Ms PIN = mmu_STRING
@@ -96,80 +93,52 @@ for (timepoint in timepoints) {
 # 3) EXPORTING INDIVIDUAL PathfindR PLOTS
 ######################################################################
 
+# Export all pathfindR reports as csv files
+list <- ls(pattern = 'pathfindR_result')
+for (item in list) {write.csv(get(item), file = paste0('pathfindR/', item), row.names = FALSE)}
+
 # List all outputs from pathfindR in steps above
-(pathfindR_output_list <- ls(pattern = 'pathfindR_result_'))
+# If there are zero terms identified these will give an error and need filtered out by altering pattern
+(pathfindR_output_list <- ls(pattern = 'treatment_RP1'))
 
 for (output in pathfindR_output_list) {
+  
+  # Abbreviate output name to comparison name for title of plot and export file name
+  # Use to save .csv export of pathfindR output
+  output_abbreviated <- gsub(pattern = 'pathfindR_result_treatment_', replacement = '', output)
+  output_abbreviated <- gsub(pattern = '.csv', replacement = '', output_abbreviated)
 
-# manual
-output = 'pathfindR_result_treatment_RT_ATRi_D3_vs_Vehicle_D3.csv'
-manual_title='ATRi/RT Day 3'
-##### For Test Purposes
-##### (output <- pathfindR_output_list[4])
-
-# Abbreviate output name to comparison name for title of plot and export file name
-output_abbreviated <- gsub(pattern = 'pathfindR_result_treatment_', replacement = '', output)
-output_abbreviated <- gsub(pattern = '.csv', replacement = '', output_abbreviated)
-
-# Enrichment chart is a ggplot object
-plot <- enrichment_chart(result_df = get(output), top_terms = 10) +
-  labs(title = manual_title,
-       x = "Fold Enrichment", #expression to insert mathematical symbols // Use ~ in place of space, will auto convert greek
-       y = NULL) + # x = NULL or y = NULL removes axis label
-  #scale_x_continuous(expand = c(0,0), limits = c(0, 10), breaks = seq(0, 10, by = 2), minor_breaks = NULL) +
-  theme(aspect.ratio=4/1.5) +
-  theme(plot.title = element_text(color = "black", size = 7, angle = 0, hjust = 0.5, vjust = 1, face = "bold", family = "sans"),
-        axis.text.x = element_text(color = "black", size = 7, angle = 0, hjust = 0.5, vjust = 0.5, face = "plain", family = "sans"),
-        axis.title.x = element_text(color = "black", size = 7, angle = 0, hjust = 0.5, vjust = 0.5, face = "plain", family = "sans"),
-        axis.text.y = element_text(color = "black", size = 6, angle = 0, hjust = 1, vjust = 0.5, face = "plain", family = "sans"),
-        axis.title.y = element_text(color = "black", size = 7, angle = 90, vjust = 0.5, hjust = 0.5, face = "plain", family = "sans")
-        ) +
-  #theme(legend.key.size = unit(.4, "cm")) +
-  guides(colour = guide_colourbar(barwidth = 0.5, barheight = 3, title.theme = element_text(size = 7), label.theme = element_text(size = 7))) +
-  guides(size = guide_legend(keyheight = 0.8, title = "#genes", legend.key.size = 10, title.theme = element_text(size = 7), label.theme = element_text(size = 7))) +
-  scale_size(range = c(1, 4),)  # adjusts scale of bubble
-
-print(plot)
-
-pdf(paste0('pathfindr/', 'fig_', output_abbreviated, '.pdf'), width=3.5, height=2.1)
-print(plot)
-dev.off()
-
+  
+  # Enrichment chart is a ggplot object
+  plot <- enrichment_chart(result_df = get(output), top_terms = 20) +
+    labs(title = output_abbreviated,
+         x = "Fold Enrichment", #expression to insert mathematical symbols // Use ~ in place of space, will auto convert greek
+         y = NULL) + # x = NULL or y = NULL removes axis label
+    #scale_x_continuous(expand = c(0,0), limits = c(0, 10), breaks = seq(0, 10, by = 2), minor_breaks = NULL) +
+    theme(aspect.ratio=4/1.5) +
+    theme(plot.title = element_text(color = "black", size = 7, angle = 0, hjust = 0.5, vjust = 1, face = "bold", family = "sans"),
+          axis.text.x = element_text(color = "black", size = 7, angle = 0, hjust = 0.5, vjust = 0.5, face = "plain", family = "sans"),
+          axis.title.x = element_text(color = "black", size = 7, angle = 0, hjust = 0.5, vjust = 0.5, face = "plain", family = "sans"),
+          axis.text.y = element_text(color = "black", size = 6, angle = 0, hjust = 1, vjust = 0.5, face = "plain", family = "sans"),
+          axis.title.y = element_text(color = "black", size = 7, angle = 90, vjust = 0.5, hjust = 0.5, face = "plain", family = "sans")
+    ) +
+    #theme(legend.key.size = unit(.4, "cm")) +
+    guides(colour = guide_colourbar(barwidth = 0.5, barheight = 3, title.theme = element_text(size = 7), label.theme = element_text(size = 7))) +
+    guides(size = guide_legend(keyheight = 0.8, title = "#genes", legend.key.size = 10, title.theme = element_text(size = 7), label.theme = element_text(size = 7))) +
+    scale_size(range = c(1, 4),)  # adjusts scale of bubble
+  
+  print(plot)
+  
+  pdf(paste0('pathfindr/', 'fig_', output_abbreviated, '.pdf'), width=7, height=5)
+  print(plot)
+  dev.off()
 }
 
 
-######################################################################
-# 4) CLUSTERED PathfindR PLOTS
-######################################################################
 
-### Skipping Clustered pathfindR plots as not usful at this time
-#RA_clustered <- cluster_enriched_terms(pathfindr.output, plot_dend = FALSE, plot_clusters_graph = FALSE)
-#enrichment_chart(RA_clustered, plot_by_cluster = TRUE)
-#RA_selected <- subset(RA_clustered, Cluster %in% 1:8)
-#enrichment_chart(RA_selected, plot_by_cluster = TRUE)
 
 ######################################################################
-# 5) GROUPED PathfindR PLOTS
-######################################################################
-
-### Grouped PathfindR plots also not useful
-# List all outputs from pathfindR in steps above
-#(pathfindR_output_list <- ls(pattern = 'pathfindR_result_'))
-
-# Combining Results
-#combined_df <- combine_pathfindR_results(result_A = pathfindR_result_treatment_ATRi_D3_vs_Vehicle_D3.csv, 
-#                                         result_B = pathfindR_result_treatment_RT_D3_vs_Vehicle_D3.csv,
-#                                         plot_common = FALSE)
-#combined_results_graph(combined_df,
-#                       selected_terms = "common",
-#                       use_description = FALSE,
-#                       layout = "stress",
-#                       node_size = "num_genes")
-
-# You may run `combined_results_graph()` to create visualizations of combined term-gene graphs of selected terms
-
-######################################################################
-# 6a) FIGURE ASSEMBLY DAY 3
+# 4a) FIGURE ASSEMBLY DAY 3
 ######################################################################
 
 ls(pattern = 'pathfindR_result_treatment')
@@ -288,7 +257,7 @@ dev.off()
 
 
 ######################################################################
-# 6b) FIGURE ASSEMBLY DAY 10
+# 4b) FIGURE ASSEMBLY DAY 10
 ######################################################################
 
 ls(pattern = 'pathfindR_result_treatment')
